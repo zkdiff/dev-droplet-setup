@@ -1,0 +1,172 @@
+#cloud-config
+# ============================================
+# DigitalOcean Droplet Cloud-Init Configuration
+# ============================================
+# Use this as "User Data" when creating a new droplet
+# This will automatically run on first boot
+
+# Set timezone
+timezone: UTC
+
+# Update and upgrade packages on first boot
+package_update: true
+package_upgrade: true
+
+# Install essential packages
+packages:
+  - git
+  - vim
+  - neovim
+  - tmux
+  - curl
+  - wget
+  - htop
+  - net-tools
+  - build-essential
+  - software-properties-common
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - unzip
+  - zip
+  - jq
+  - tree
+  - ncdu
+  - ripgrep
+  - fd-find
+  - bat
+  - zsh
+  - unattended-upgrades
+
+# Write configuration files
+write_files:
+  # Bootstrap script
+  - path: /root/bootstrap.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # This will be the full bootstrap script
+      curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/bootstrap.sh | bash
+
+  # .zshrc
+  - path: /root/.zshrc
+    permissions: '0644'
+    content: |
+      export ZSH="$HOME/.oh-my-zsh"
+      ZSH_THEME="robbyrussell"
+      plugins=(git docker docker-compose npm node)
+      source $ZSH/oh-my-zsh.sh
+      
+      export NVM_DIR="$HOME/.nvm"
+      [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+      
+      alias ll='ls -alF'
+      alias dc='docker-compose'
+      alias dps='docker ps'
+      alias gs='git status'
+      
+      export EDITOR=vim
+      export DOTNET_ROOT=/usr/share/dotnet
+      export PATH=$PATH:$DOTNET_ROOT
+      
+      PROMPT='%{$fg[cyan]%}[%*] %{$fg[green]%}%n@%m%{$reset_color%}:%{$fg[blue]%}%~%{$reset_color%}$(git_prompt_info) %# '
+
+  # .tmux.conf
+  - path: /root/.tmux.conf
+    permissions: '0644'
+    content: |
+      set -g mouse on
+      set -g default-terminal "screen-256color"
+      set -g history-limit 10000
+      set -g base-index 1
+      setw -g pane-base-index 1
+      set -g prefix C-a
+      unbind C-b
+      bind C-a send-prefix
+      bind r source-file ~/.tmux.conf \; display "Config reloaded!"
+      bind | split-window -h
+      bind - split-window -v
+
+  # .vimrc
+  - path: /root/.vimrc
+    permissions: '0644'
+    content: |
+      syntax on
+      set number
+      set relativenumber
+      set tabstop=4
+      set shiftwidth=4
+      set expandtab
+      set smartindent
+      colorscheme desert
+      set noswapfile
+      set nobackup
+
+# Run commands on first boot
+runcmd:
+  # Install Docker
+  - curl -fsSL https://get.docker.com | sh
+  - systemctl enable docker
+  - systemctl start docker
+  
+  # Install oh-my-zsh
+  - su - root -c 'sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended'
+  - chsh -s /usr/bin/zsh root
+  
+  # Install nvm and Node.js
+  - su - root -c 'curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash'
+  - su - root -c 'export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh" && nvm install --lts && nvm use --lts'
+  
+  # Install .NET SDK
+  - wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh
+  - chmod +x /tmp/dotnet-install.sh
+  - /tmp/dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet
+  - ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+  
+  # Install GitHub CLI
+  - curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+  - chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+  - apt update
+  - apt install gh -y
+  
+  # Configure git
+  - git config --global init.defaultBranch main
+  - git config --global pull.rebase false
+  - git config --global core.editor vim
+  
+  # Create project directories
+  - mkdir -p /root/projects
+  - mkdir -p /root/scripts
+  
+  # Enable automatic security updates
+  - dpkg-reconfigure -plow unattended-upgrades
+  
+  # Create completion marker
+  - echo "Cloud-init completed at $(date)" > /root/.cloud-init-complete
+
+# Final message
+final_message: |
+  ============================================
+  Droplet provisioning complete!
+  ============================================
+  
+  Installed tools:
+  - Docker & Docker Compose
+  - Node.js (via nvm)
+  - .NET SDK 8.0
+  - Git & GitHub CLI
+  - zsh with oh-my-zsh
+  - tmux, vim, neovim
+  - Build tools & utilities
+  
+  Next steps:
+  1. Log in via SSH
+  2. Configure git: git config --global user.name "Your Name"
+  3. Configure git: git config --global user.email "you@example.com"
+  4. Authenticate GitHub CLI: gh auth login
+  
+  Projects directory: /root/projects
+  
+  System ready for development!

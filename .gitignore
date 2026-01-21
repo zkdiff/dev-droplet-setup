@@ -1,0 +1,41 @@
+# Logs
+*.log
+/var/log/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.bak
+
+# SSH keys and sensitive data
+.ssh/
+*.pem
+*.key
+.env
+.env.*
+credentials.json
+
+# Cache directories
+.cache/
+__pycache__/
+*.pyc
+
+# Local configuration
+.local/
+.config/
+
+# Build artifacts
+*.o
+*.so
+*.dll
+*.exe
