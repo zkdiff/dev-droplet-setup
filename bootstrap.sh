@@ -183,15 +183,17 @@ export NVM_DIR="$HOME/.nvm"
 alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
-alias dc='docker-compose'
+alias dc='docker compose'
 alias dps='docker ps'
-alias dcu='docker-compose up -d'
-alias dcd='docker-compose down'
+alias dcu='docker compose up -d'
+alias dcd='docker compose down'
 alias gs='git status'
 alias ga='git add'
 alias gc='git commit'
 alias gp='git push'
 alias gl='git log --oneline --graph --decorate'
+command -v fdfind >/dev/null 2>&1 && alias fd='fdfind'
+command -v batcat >/dev/null 2>&1 && alias bat='batcat'
 
 # Custom prompt with timestamp
 PROMPT='%{$fg[cyan]%}[%*] %{$fg[green]%}%n@%m%{$reset_color%}:%{$fg[blue]%}%~%{$reset_color%}$(git_prompt_info) %# '
@@ -300,7 +302,7 @@ timedatectl set-timezone UTC
 # Enable automatic security updates
 log "Configuring automatic security updates..."
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq unattended-upgrades
-dpkg-reconfigure -plow unattended-upgrades
+DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive unattended-upgrades
 
 # Clean up
 log "Cleaning up..."

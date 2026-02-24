@@ -7,13 +7,13 @@
 
 set -euo pipefail
 
-# Configuration - Update these values
-DROPLET_NAME="dev-$(date +%Y%m%d-%H%M%S)"
-DROPLET_REGION="sfo3"  # Change to your preferred region
-DROPLET_SIZE="s-2vcpu-4gb"  # Change to your preferred size
-DROPLET_IMAGE="ubuntu-24-04-x64"
-SSH_KEY_ID=""  # Add your SSH key ID (get with: doctl compute ssh-key list)
-CLOUD_INIT_FILE="cloud-init.yaml"
+# Configuration - edit defaults or override with environment variables
+DROPLET_NAME="${DROPLET_NAME:-dev-$(date +%Y%m%d-%H%M%S)}"
+DROPLET_REGION="${DROPLET_REGION:-sfo3}"  # Change to your preferred region
+DROPLET_SIZE="${DROPLET_SIZE:-s-2vcpu-4gb}"  # Change to your preferred size
+DROPLET_IMAGE="${DROPLET_IMAGE:-ubuntu-24-04-x64}"
+SSH_KEY_ID="${SSH_KEY_ID:-}"  # Add your SSH key ID (get with: doctl compute ssh-key list)
+CLOUD_INIT_FILE="${CLOUD_INIT_FILE:-cloud-init.yaml}"
 
 # Colors
 RED='\033[0;31m'
@@ -42,23 +42,23 @@ check_doctl() {
 create_droplet() {
     echo -e "${BLUE}Creating new droplet: ${DROPLET_NAME}${NC}"
     
-    local user_data_arg=""
+    local user_data_arg=()
     if [ -f "$CLOUD_INIT_FILE" ]; then
-        user_data_arg="--user-data-file $CLOUD_INIT_FILE"
+        user_data_arg=(--user-data-file "$CLOUD_INIT_FILE")
         echo -e "${GREEN}Using cloud-init from: $CLOUD_INIT_FILE${NC}"
     fi
     
-    local ssh_keys_arg=""
+    local ssh_keys_arg=()
     if [ -n "$SSH_KEY_ID" ]; then
-        ssh_keys_arg="--ssh-keys $SSH_KEY_ID"
+        ssh_keys_arg=(--ssh-keys "$SSH_KEY_ID")
     fi
     
     doctl compute droplet create "$DROPLET_NAME" \
         --region "$DROPLET_REGION" \
         --size "$DROPLET_SIZE" \
         --image "$DROPLET_IMAGE" \
-        $ssh_keys_arg \
-        $user_data_arg \
+        "${ssh_keys_arg[@]}" \
+        "${user_data_arg[@]}" \
         --wait \
         --format ID,Name,PublicIPv4,Status
     
@@ -67,7 +67,8 @@ create_droplet() {
     echo ""
     
     # Get the IP address
-    local ip=$(doctl compute droplet list --format Name,PublicIPv4 --no-header | grep "$DROPLET_NAME" | awk '{print $2}')
+    local ip
+    ip=$(doctl compute droplet list --format Name,PublicIPv4 --no-header | awk -v name="$DROPLET_NAME" '$1 == name {print $2; exit}')
     
     if [ -n "$ip" ]; then
         echo -e "${YELLOW}Connection info:${NC}"
@@ -117,7 +118,7 @@ get_ip() {
         exit 1
     fi
     
-    doctl compute droplet list --format Name,PublicIPv4 --no-header | grep "$1" | awk '{print $2}'
+    doctl compute droplet list --format Name,PublicIPv4 --no-header | awk -v name="$1" '$1 == name {print $2; exit}'
 }
 
 # SSH into a droplet
@@ -141,9 +142,8 @@ ssh_droplet() {
 
 # Show usage
 usage() {
+    echo -e "${BLUE}DigitalOcean Droplet Manager${NC}"
     cat << EOF
-${BLUE}DigitalOcean Droplet Manager${NC}
-
 Usage: $0 <command> [options]
 
 Commands:
@@ -154,7 +154,8 @@ Commands:
   ssh <name>          SSH into a droplet by name
   help                Show this help message
 
-Configuration (edit this script):
+Configuration (edit script or override with env vars):
+  DROPLET_NAME:    $DROPLET_NAME
   DROPLET_REGION:  $DROPLET_REGION
   DROPLET_SIZE:    $DROPLET_SIZE
   DROPLET_IMAGE:   $DROPLET_IMAGE
@@ -171,35 +172,38 @@ Setup:
   1. Install doctl: https://docs.digitalocean.com/reference/doctl/how-to/install/
   2. Authenticate: doctl auth init
   3. Get SSH key ID: doctl compute ssh-key list
-  4. Update SSH_KEY_ID in this script
+  4. Set SSH_KEY_ID as an env var or edit script defaults
 EOF
 }
 
 # Main
 main() {
-    check_doctl
-    
     case "${1:-help}" in
         create)
+            check_doctl
             create_droplet
             ;;
         list)
+            check_doctl
             list_droplets
             ;;
         destroy)
+            check_doctl
             destroy_droplet "${2:-}"
             ;;
         ip)
+            check_doctl
             get_ip "${2:-}"
             ;;
         ssh)
+            check_doctl
             ssh_droplet "${2:-}"
             ;;
         help|--help|-h)
             usage
             ;;
         *)
-            echo -e "${RED}Unknown command: $1${NC}"
+            echo -e "${RED}Unknown command: ${1:-}${NC}"
             echo ""
             usage
             exit 1
