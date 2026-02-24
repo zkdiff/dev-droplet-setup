@@ -47,7 +47,7 @@ write_files:
     content: |
       #!/bin/bash
       # This will be the full bootstrap script
-      curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/bootstrap.sh | bash
+      curl -fsSL https://raw.githubusercontent.com/zkdiff/dev-droplet-setup/main/bootstrap.sh | bash
 
   # .zshrc
   - path: /root/.zshrc
