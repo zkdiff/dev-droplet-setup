@@ -136,19 +136,19 @@ get_ip() {
     doctl compute droplet list --format Name,PublicIPv4 --no-header | awk -v name="$target" '$1 == name {print $2; exit}'
 }
 
-# SSH into a droplet
 ssh_droplet() {
     local target="${1:-$DROPLET_NAME}"
+    local ip
+    ip="$(get_ip "$target")" || return 1
 
-    local ip=$(get_ip "$target")
-
-    if [ -z "$ip" ]; then
-        echo -e "${RED}Error: Could not find IP for droplet: $target${NC}"
-        exit 1
-    fi
+    [[ -z "$ip" ]] && { echo -e "${RED}Error: Could not find IP for droplet: $target${NC}"; return 1; }
 
     echo -e "${BLUE}Connecting to $target ($ip) via ssh config...${NC}"
-    ssh -o HostName="$ip" "$target"
+    if declare -p ssh_args &>/dev/null && [[ ${#ssh_args[@]} -gt 0 ]]; then
+        env TERM=xterm-256color ssh -o HostName="$ip" "$target" "${ssh_args[@]}"
+    else
+        env TERM=xterm-256color ssh -o HostName="$ip" "$target"
+    fi
 }
 
 # Show usage
