@@ -8,12 +8,11 @@
 set -euo pipefail
 
 # Configuration - edit defaults or override with environment variables
-DROPLET_NAME="${DROPLET_NAME:-dev-$(date +%Y%m%d-%H%M%S)}"
-DROPLET_REGION="${DROPLET_REGION:-sfo3}"  # Change to your preferred region
-DROPLET_SIZE="${DROPLET_SIZE:-s-2vcpu-4gb}"  # Change to your preferred size
-DROPLET_IMAGE="${DROPLET_IMAGE:-ubuntu-24-04-x64}"
-SSH_KEY_ID="${SSH_KEY_ID:-}"  # Add your SSH key ID (get with: doctl compute ssh-key list)
+DROPLET_NAME="dam-dev"
 CLOUD_INIT_FILE="${CLOUD_INIT_FILE:-cloud-init.yaml}"
+
+# Dynamically fetch all SSH Key IDs to ensure access
+SSH_KEY_IDS=$(doctl compute ssh-key list --format ID --no-header | paste -sd "," -)
 
 # Colors
 RED='\033[0;31m'
@@ -29,7 +28,7 @@ check_doctl() {
         echo "Install it from: https://docs.digitalocean.com/reference/doctl/how-to/install/"
         exit 1
     fi
-    
+
     # Check if authenticated
     if ! doctl account get &> /dev/null; then
         echo -e "${RED}Error: doctl is not authenticated${NC}"
@@ -41,35 +40,35 @@ check_doctl() {
 # Create a new droplet
 create_droplet() {
     echo -e "${BLUE}Creating new droplet: ${DROPLET_NAME}${NC}"
-    
+
     local user_data_arg=()
     if [ -f "$CLOUD_INIT_FILE" ]; then
         user_data_arg=(--user-data-file "$CLOUD_INIT_FILE")
         echo -e "${GREEN}Using cloud-init from: $CLOUD_INIT_FILE${NC}"
     fi
-    
+
     local ssh_keys_arg=()
-    if [ -n "$SSH_KEY_ID" ]; then
-        ssh_keys_arg=(--ssh-keys "$SSH_KEY_ID")
+    if [ -n "$SSH_KEY_IDS" ]; then
+        ssh_keys_arg=(--ssh-keys "$SSH_KEY_IDS")
     fi
-    
+
     doctl compute droplet create "$DROPLET_NAME" \
-        --region "$DROPLET_REGION" \
-        --size "$DROPLET_SIZE" \
-        --image "$DROPLET_IMAGE" \
-        "${ssh_keys_arg[@]}" \
-        "${user_data_arg[@]}" \
+        --image ubuntu-24-04-x64 \
+        --size c2-8vcpu-16gb-intel \
+        --enable-monitoring \
         --wait \
+        "${user_data_arg[@]}" \
+        "${ssh_keys_arg[@]}" \
         --format ID,Name,PublicIPv4,Status
-    
+
     echo ""
     echo -e "${GREEN}Droplet created successfully!${NC}"
     echo ""
-    
+
     # Get the IP address
     local ip
     ip=$(doctl compute droplet list --format Name,PublicIPv4 --no-header | awk -v name="$DROPLET_NAME" '$1 == name {print $2; exit}')
-    
+
     if [ -n "$ip" ]; then
         echo -e "${YELLOW}Connection info:${NC}"
         echo "  IP Address: $ip"
@@ -91,17 +90,11 @@ list_droplets() {
 
 # Destroy a droplet
 destroy_droplet() {
-    if [ -z "${1:-}" ]; then
-        echo -e "${RED}Error: Please provide droplet ID or name${NC}"
-        echo "Usage: $0 destroy <droplet-id-or-name>"
-        exit 1
-    fi
-    
-    local identifier="$1"
-    
+    local identifier="${1:-$DROPLET_NAME}"
+
     echo -e "${YELLOW}Are you sure you want to destroy droplet: $identifier? (y/N)${NC}"
     read -r response
-    
+
     if [[ "$response" =~ ^[Yy]$ ]]; then
         doctl compute droplet delete "$identifier" --force
         echo -e "${GREEN}Droplet destroyed${NC}"
@@ -112,32 +105,24 @@ destroy_droplet() {
 
 # Get droplet IP
 get_ip() {
-    if [ -z "${1:-}" ]; then
-        echo -e "${RED}Error: Please provide droplet name${NC}"
-        echo "Usage: $0 ip <droplet-name>"
-        exit 1
-    fi
-    
-    doctl compute droplet list --format Name,PublicIPv4 --no-header | awk -v name="$1" '$1 == name {print $2; exit}'
+    local target="${1:-$DROPLET_NAME}"
+
+    doctl compute droplet list --format Name,PublicIPv4 --no-header | awk -v name="$target" '$1 == name {print $2; exit}'
 }
 
 # SSH into a droplet
 ssh_droplet() {
-    if [ -z "${1:-}" ]; then
-        echo -e "${RED}Error: Please provide droplet name${NC}"
-        echo "Usage: $0 ssh <droplet-name>"
-        exit 1
-    fi
-    
-    local ip=$(get_ip "$1")
-    
+    local target="${1:-$DROPLET_NAME}"
+
+    local ip=$(get_ip "$target")
+
     if [ -z "$ip" ]; then
-        echo -e "${RED}Error: Could not find IP for droplet: $1${NC}"
+        echo -e "${RED}Error: Could not find IP for droplet: $target${NC}"
         exit 1
     fi
-    
-    echo -e "${BLUE}Connecting to $1 ($ip)...${NC}"
-    ssh root@"$ip"
+
+    echo -e "${BLUE}Connecting to $target ($ip) via ssh config...${NC}"
+    ssh -o HostName="$ip" "$target"
 }
 
 # Show usage
@@ -156,10 +141,7 @@ Commands:
 
 Configuration (edit script or override with env vars):
   DROPLET_NAME:    $DROPLET_NAME
-  DROPLET_REGION:  $DROPLET_REGION
-  DROPLET_SIZE:    $DROPLET_SIZE
-  DROPLET_IMAGE:   $DROPLET_IMAGE
-  SSH_KEY_ID:      ${SSH_KEY_ID:-"Not set"}
+  CLOUD_INIT_FILE: $CLOUD_INIT_FILE
 
 Examples:
   $0 create
@@ -171,8 +153,7 @@ Examples:
 Setup:
   1. Install doctl: https://docs.digitalocean.com/reference/doctl/how-to/install/
   2. Authenticate: doctl auth init
-  3. Get SSH key ID: doctl compute ssh-key list
-  4. Set SSH_KEY_ID as an env var or edit script defaults
+  3. Note: SSH keys are now fetched automatically and applied.
 EOF
 }
 
