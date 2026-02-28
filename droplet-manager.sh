@@ -143,11 +143,23 @@ ssh_droplet() {
 
     [[ -z "$ip" ]] && { echo -e "${RED}Error: Could not find IP for droplet: $target${NC}"; return 1; }
 
+    # Forward GITHUB_TOKEN to the droplet via SendEnv
+    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+        if command -v gh &>/dev/null; then
+            GITHUB_TOKEN="$(gh auth token 2>/dev/null)" || true
+        fi
+    fi
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        echo -e "${GREEN}Forwarding GITHUB_TOKEN to droplet${NC}"
+    else
+        echo -e "${YELLOW}Warning: GITHUB_TOKEN not available (install gh CLI or export it)${NC}"
+    fi
+
     echo -e "${BLUE}Connecting to $target ($ip) via ssh config...${NC}"
     if declare -p ssh_args &>/dev/null && [[ ${#ssh_args[@]} -gt 0 ]]; then
-        env TERM=xterm-256color ssh -o HostName="$ip" "$target" "${ssh_args[@]}"
+        env TERM=xterm-256color GITHUB_TOKEN="${GITHUB_TOKEN:-}" ssh -o SendEnv=GITHUB_TOKEN -o HostName="$ip" "$target" "${ssh_args[@]}"
     else
-        env TERM=xterm-256color ssh -o HostName="$ip" "$target"
+        env TERM=xterm-256color GITHUB_TOKEN="${GITHUB_TOKEN:-}" ssh -o SendEnv=GITHUB_TOKEN -o HostName="$ip" "$target"
     fi
 }
 

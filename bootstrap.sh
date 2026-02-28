@@ -205,6 +205,13 @@ vim.cmd([[
 EOF
 
 
+# Configure sshd to accept GITHUB_TOKEN from client
+log "Configuring sshd to accept GITHUB_TOKEN..."
+if ! grep -q 'AcceptEnv GITHUB_TOKEN' /etc/ssh/sshd_config; then
+    echo 'AcceptEnv GITHUB_TOKEN' >> /etc/ssh/sshd_config
+    systemctl restart sshd
+fi
+
 # Set timezone (optional - adjust as needed)
 log "Setting timezone to PST..."
 timedatectl set-timezone America/Los_Angeles
