@@ -87,8 +87,18 @@ create_droplet() {
                 sleep 5
             done
 
-            echo -e "${YELLOW}SSH ready. Waiting for cloud-init...${NC}"
-            ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@"$ip" 'cloud-init status --wait' || true
+            echo -e "${YELLOW}SSH ready. Streaming cloud-init logs...${NC}"
+
+            # Start streaming the log in the background locally
+            ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@"$ip" 'tail -n +1 -f /var/log/cloud-init-output.log 2>/dev/null' &
+            TAIL_PID=$!
+
+            # Wait for cloud-init to finish
+            ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@"$ip" 'cloud-init status --wait >/dev/null 2>&1' || true
+
+            # Kill the tail process once provisioning is complete
+            kill $TAIL_PID 2>/dev/null || true
+            wait $TAIL_PID 2>/dev/null || true
 
             echo -e "${GREEN}Provisioning complete! You can now SSH into the droplet.${NC}"
         else

@@ -8,8 +8,11 @@ set -euo pipefail
 # Usage: curl -fsSL <url-to-this-script> | bash
 # Or: bash bootstrap.sh
 
-SCRIPT_VERSION="1.0.0"
+SCRIPT_VERSION="1.0.1"
 LOG_FILE="/var/log/droplet-bootstrap.log"
+
+# Provide a reliable default for HOME so tools like git (via cloud-init) don't fail
+export HOME=/root
 
 # Colors for output
 RED='\033[0;31m'
@@ -40,13 +43,24 @@ log "========================================"
 log "Droplet Bootstrap Script v${SCRIPT_VERSION}"
 log "========================================"
 
+# Wait for background apt processes to finish
+wait_for_apt() {
+    log "Waiting for apt locks to be released..."
+    while fuser /var/lib/dpkg/lock >/dev/null 2>&1 || fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+        sleep 5
+    done
+}
+
 # Update system
 log "Updating system packages..."
+wait_for_apt
 apt-get update -qq
+wait_for_apt
 DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
 
 # Install essential packages
 log "Installing essential packages..."
+wait_for_apt
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     git \
     vim \
@@ -73,6 +87,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
 
 # Install zsh
 log "Installing zsh..."
+wait_for_apt
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq zsh
 
 
@@ -196,6 +211,7 @@ timedatectl set-timezone America/Los_Angeles
 
 # Enable automatic security updates
 log "Configuring automatic security updates..."
+wait_for_apt
 DEBIAN_FRONTEND=noninteractive apt-get install -y -qq unattended-upgrades
 DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive unattended-upgrades
 
