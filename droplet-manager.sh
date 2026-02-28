@@ -7,9 +7,12 @@
 
 set -euo pipefail
 
+# Get the directory of this script to reliably resolve relative paths like cloud-init.yaml
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Configuration - edit defaults or override with environment variables
 DROPLET_NAME="dam-dev"
-CLOUD_INIT_FILE="${CLOUD_INIT_FILE:-cloud-init.yaml}"
+CLOUD_INIT_FILE="${CLOUD_INIT_FILE:-$SCRIPT_DIR/cloud-init.yaml}"
 
 # Dynamically fetch all SSH Key IDs to ensure access
 SSH_KEY_IDS=$(doctl compute ssh-key list --format ID --no-header | paste -sd "," -)
@@ -41,25 +44,25 @@ check_doctl() {
 create_droplet() {
     echo -e "${BLUE}Creating new droplet: ${DROPLET_NAME}${NC}"
 
-    local user_data_arg=()
+    local doctl_args=(
+        compute droplet create "$DROPLET_NAME"
+        --image ubuntu-24-04-x64
+        --size c2-8vcpu-16gb-intel
+        --enable-monitoring
+        --wait
+        --format ID,Name,PublicIPv4,Status
+    )
+
     if [ -f "$CLOUD_INIT_FILE" ]; then
-        user_data_arg=(--user-data-file "$CLOUD_INIT_FILE")
+        doctl_args+=(--user-data-file "$CLOUD_INIT_FILE")
         echo -e "${GREEN}Using cloud-init from: $CLOUD_INIT_FILE${NC}"
     fi
 
-    local ssh_keys_arg=()
     if [ -n "$SSH_KEY_IDS" ]; then
-        ssh_keys_arg=(--ssh-keys "$SSH_KEY_IDS")
+        doctl_args+=(--ssh-keys "$SSH_KEY_IDS")
     fi
 
-    doctl compute droplet create "$DROPLET_NAME" \
-        --image ubuntu-24-04-x64 \
-        --size c2-8vcpu-16gb-intel \
-        --enable-monitoring \
-        --wait \
-        "${user_data_arg[@]}" \
-        "${ssh_keys_arg[@]}" \
-        --format ID,Name,PublicIPv4,Status
+    doctl "${doctl_args[@]}"
 
     echo ""
     echo -e "${GREEN}Droplet created successfully!${NC}"
@@ -74,11 +77,24 @@ create_droplet() {
         echo "  IP Address: $ip"
         echo "  SSH: ssh root@$ip"
         echo ""
-        echo -e "${YELLOW}If using cloud-init, wait 2-3 minutes for provisioning to complete${NC}"
-        echo "Check status: ssh root@$ip 'tail -f /var/log/cloud-init-output.log'"
-        echo ""
-        echo -e "${YELLOW}If not using cloud-init, bootstrap manually:${NC}"
-        echo "  ssh root@$ip 'bash -s' < bootstrap.sh"
+
+        if [ -f "$CLOUD_INIT_FILE" ]; then
+            echo -e "${BLUE}Waiting for cloud-init to complete (this may take a few minutes)...${NC}"
+
+            # Wait for SSH to be ready
+            echo -e "${YELLOW}Waiting for SSH access...${NC}"
+            while ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q root@"$ip" exit &>/dev/null; do
+                sleep 5
+            done
+
+            echo -e "${YELLOW}SSH ready. Waiting for cloud-init...${NC}"
+            ssh -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null root@"$ip" 'cloud-init status --wait' || true
+
+            echo -e "${GREEN}Provisioning complete! You can now SSH into the droplet.${NC}"
+        else
+            echo -e "${YELLOW}If not using cloud-init, bootstrap manually:${NC}"
+            echo "  ssh root@$ip 'bash -s' < bootstrap.sh"
+        fi
     fi
 }
 
