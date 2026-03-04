@@ -34,6 +34,7 @@ This document covers tooling, configuration, customization, and troubleshooting.
 - Pre-configured `.vimrc` for basic editing
 - Git defaults (main branch, vim editor)
 - Automatic security updates enabled
+- Optional Docker auth for `registry.digitalocean.com` via `DOCR_REGISTRY_USER` and `DOCR_REGISTRY_TOKEN`
 
 ## Useful Aliases
 
@@ -120,17 +121,22 @@ To minimize costs:
    - `s-2vcpu-2gb` for most development
    - Scale up only when needed
 
-2. **Destroy droplets when not in use**
+2. **Use the closest region for lower latency**
+   - Portland users: `sfo3` is usually the best choice
+   - `./droplet-manager.sh create --region sfo3`
+   - `export DROPLET_REGION=sfo3` to make it the default
+
+3. **Destroy droplets when not in use**
    ```bash
    ./droplet-manager.sh destroy <name>
    ```
 
-3. **Use snapshots** for long-term storage
+4. **Use snapshots** for long-term storage
    ```bash
    doctl compute droplet-action snapshot <droplet-id> --snapshot-name my-dev-env
    ```
 
-4. **Track your usage**
+5. **Track your usage**
    ```bash
    doctl compute droplet list
    ```

@@ -13,6 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Configuration - edit defaults or override with environment variables
 DROPLET_NAME="dam-dev"
 DROPLET_SIZE="${DROPLET_SIZE:-c2-8vcpu-16gb-intel}"
+DROPLET_REGION="${DROPLET_REGION:-sfo3}"
 CLOUD_INIT_FILE="${CLOUD_INIT_FILE:-$SCRIPT_DIR/cloud-init.yaml}"
 
 # Dynamically fetch all SSH Key IDs to ensure access
@@ -44,13 +45,15 @@ check_doctl() {
 # Create a new droplet
 create_droplet() {
     local droplet_size="${1:-$DROPLET_SIZE}"
+    local droplet_region="${2:-$DROPLET_REGION}"
 
-    echo -e "${BLUE}Creating new droplet: ${DROPLET_NAME} (${droplet_size})${NC}"
+    echo -e "${BLUE}Creating new droplet: ${DROPLET_NAME} (${droplet_size}, ${droplet_region})${NC}"
 
     local doctl_args=(
         compute droplet create "$DROPLET_NAME"
         --image ubuntu-24-04-x64
         --size "$droplet_size"
+        --region "$droplet_region"
         --enable-monitoring
         --wait
         --format ID,Name,PublicIPv4,Status
@@ -143,6 +146,8 @@ ssh_droplet() {
     local target="${1:-$DROPLET_NAME}"
     local ip
     local forwarded_token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+    local forwarded_docr_user="${DOCR_REGISTRY_USER:-zkdiff@gmail.com}"
+    local forwarded_docr_token="${DOCR_REGISTRY_TOKEN:-}"
     ip="$(get_ip "$target")" || return 1
 
     [[ -z "$ip" ]] && { echo -e "${RED}Error: Could not find IP for droplet: $target${NC}"; return 1; }
@@ -159,11 +164,15 @@ ssh_droplet() {
         echo -e "${YELLOW}Warning: GitHub token not available (install gh CLI or export GH_TOKEN/GITHUB_TOKEN)${NC}"
     fi
 
+    if [[ -n "$forwarded_docr_token" ]]; then
+        echo -e "${GREEN}Forwarding DOCR_REGISTRY_TOKEN to droplet${NC}"
+    fi
+
     echo -e "${BLUE}Connecting to $target ($ip) via ssh config...${NC}"
     if declare -p ssh_args &>/dev/null && [[ ${#ssh_args[@]} -gt 0 ]]; then
-        env TERM=xterm-256color GITHUB_TOKEN="$forwarded_token" GH_TOKEN="$forwarded_token" ssh -o SendEnv=GITHUB_TOKEN,GH_TOKEN -o HostName="$ip" "$target" "${ssh_args[@]}"
+        env TERM=xterm-256color GITHUB_TOKEN="$forwarded_token" GH_TOKEN="$forwarded_token" DOCR_REGISTRY_USER="$forwarded_docr_user" DOCR_REGISTRY_TOKEN="$forwarded_docr_token" ssh -o SendEnv=GITHUB_TOKEN,GH_TOKEN,DOCR_REGISTRY_USER,DOCR_REGISTRY_TOKEN -o HostName="$ip" "$target" "${ssh_args[@]}"
     else
-        env TERM=xterm-256color GITHUB_TOKEN="$forwarded_token" GH_TOKEN="$forwarded_token" ssh -o SendEnv=GITHUB_TOKEN,GH_TOKEN -o HostName="$ip" "$target"
+        env TERM=xterm-256color GITHUB_TOKEN="$forwarded_token" GH_TOKEN="$forwarded_token" DOCR_REGISTRY_USER="$forwarded_docr_user" DOCR_REGISTRY_TOKEN="$forwarded_docr_token" ssh -o SendEnv=GITHUB_TOKEN,GH_TOKEN,DOCR_REGISTRY_USER,DOCR_REGISTRY_TOKEN -o HostName="$ip" "$target"
     fi
 }
 
@@ -174,7 +183,7 @@ usage() {
 Usage: $0 <command> [options]
 
 Commands:
-  create [--size <slug>] Create a new droplet with optional cloud-init
+  create [--size <slug>] [--region <slug>] Create a new droplet with optional cloud-init
   list                List all your droplets
   destroy <id>        Destroy a droplet by ID or name
   ip <name>           Get IP address of a droplet
@@ -184,11 +193,14 @@ Commands:
 Configuration (edit script or override with env vars):
   DROPLET_NAME:    $DROPLET_NAME
   DROPLET_SIZE:    $DROPLET_SIZE
+  DROPLET_REGION:  $DROPLET_REGION
   CLOUD_INIT_FILE: $CLOUD_INIT_FILE
 
 Examples:
   $0 create
   $0 create --size s-2vcpu-2gb
+  $0 create --region sfo3
+  $0 create --size s-2vcpu-2gb --region sfo3
   $0 list
   $0 ssh dev-20260121-143022
   $0 destroy dev-20260121-143022
@@ -209,6 +221,7 @@ main() {
             shift
 
             local create_size=""
+            local create_region=""
             while [[ $# -gt 0 ]]; do
                 case "$1" in
                     --size|-s)
@@ -227,15 +240,31 @@ main() {
                         fi
                         shift
                         ;;
+                    --region|-r)
+                        if [[ $# -lt 2 || "$2" == -* ]]; then
+                            echo -e "${RED}Error: --region requires a region slug${NC}"
+                            exit 1
+                        fi
+                        create_region="$2"
+                        shift 2
+                        ;;
+                    --region=*)
+                        create_region="${1#*=}"
+                        if [[ -z "$create_region" ]]; then
+                            echo -e "${RED}Error: --region requires a region slug${NC}"
+                            exit 1
+                        fi
+                        shift
+                        ;;
                     *)
                         echo -e "${RED}Unknown option for create: $1${NC}"
-                        echo "Use: $0 create --size <slug>"
+                        echo "Use: $0 create [--size <slug>] [--region <slug>]"
                         exit 1
                         ;;
                 esac
             done
 
-            create_droplet "$create_size"
+            create_droplet "$create_size" "$create_region"
             ;;
         list)
             check_doctl

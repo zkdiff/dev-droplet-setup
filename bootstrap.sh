@@ -8,8 +8,12 @@ set -euo pipefail
 # Usage: curl -fsSL <url-to-this-script> | bash
 # Or: bash bootstrap.sh
 
-SCRIPT_VERSION="1.0.1"
+SCRIPT_VERSION="1.0.2"
 LOG_FILE="/var/log/droplet-bootstrap.log"
+
+DOCR_REGISTRY_HOST="registry.digitalocean.com"
+DOCR_REGISTRY_USER="${DOCR_REGISTRY_USER:-zkdiff@gmail.com}"
+DOCR_REGISTRY_TOKEN="${DOCR_REGISTRY_TOKEN:-}"
 
 # Provide a reliable default for HOME so tools like git (via cloud-init) don't fail
 export HOME=/root
@@ -84,6 +88,50 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
     ripgrep \
     fd-find \
     bat
+
+# Install Docker engine
+log "Installing Docker engine..."
+wait_for_apt
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io
+systemctl enable --now docker
+
+# Configure Docker auth for DigitalOcean registry pulls
+configure_docr_registry_auth() {
+    if [[ -z "${DOCR_REGISTRY_TOKEN}" ]]; then
+        warn "DOCR_REGISTRY_TOKEN is empty; skipping Docker registry auth setup"
+        return
+    fi
+
+    log "Configuring Docker auth for ${DOCR_REGISTRY_HOST}..."
+    mkdir -p /root/.docker
+
+    local auth
+    local tmp_file
+    auth="$(printf '%s:%s' "${DOCR_REGISTRY_USER}" "${DOCR_REGISTRY_TOKEN}" | base64 | tr -d '\n')"
+    tmp_file="$(mktemp)"
+
+    if [[ -f /root/.docker/config.json ]]; then
+        if jq --arg host "${DOCR_REGISTRY_HOST}" --arg auth "${auth}" '.auths = (.auths // {}) | .auths[$host] = {auth: $auth}' /root/.docker/config.json >"${tmp_file}"; then
+            mv "${tmp_file}" /root/.docker/config.json
+        else
+            warn "Existing Docker config was not valid JSON; replacing it"
+            cat > /root/.docker/config.json <<EOF
+{"auths":{"${DOCR_REGISTRY_HOST}":{"auth":"${auth}"}}}
+EOF
+            rm -f "${tmp_file}"
+        fi
+    else
+        cat > /root/.docker/config.json <<EOF
+{"auths":{"${DOCR_REGISTRY_HOST}":{"auth":"${auth}"}}}
+EOF
+        rm -f "${tmp_file}"
+    fi
+
+    chmod 600 /root/.docker/config.json
+    log "Docker registry auth configured for ${DOCR_REGISTRY_HOST}"
+}
+
+configure_docr_registry_auth
 
 # Install zsh
 log "Installing zsh..."
@@ -214,10 +262,10 @@ vim.cmd([[
 EOF
 
 
-# Configure sshd to accept GitHub token variables from client
-log "Configuring sshd to accept GH_TOKEN and GITHUB_TOKEN..."
+# Configure sshd to accept token variables from client
+log "Configuring sshd to accept GH and Docker registry token env vars..."
 cat > /etc/ssh/sshd_config.d/99-github-token.conf << 'EOF'
-AcceptEnv GITHUB_TOKEN GH_TOKEN
+AcceptEnv GITHUB_TOKEN GH_TOKEN DOCR_REGISTRY_USER DOCR_REGISTRY_TOKEN
 EOF
 
 if command -v systemctl >/dev/null 2>&1; then
@@ -250,9 +298,11 @@ log "========================================"
 log ""
 log "Summary of installed tools:"
 log "  - git"
+log "  - docker"
 log "  - zsh"
 log "  - tmux, vim, neovim"
 log "  - build tools + utilities"
+log "  - DOCR pull auth for ${DOCR_REGISTRY_HOST}"
 log ""
 log "Next steps:"
 log "  1. Log out and log back in (or run: exec zsh)"

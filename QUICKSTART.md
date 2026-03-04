@@ -30,6 +30,8 @@ export SSH_KEY_ID="<your-ssh-key-id>"
 # Common commands
 ./droplet-manager.sh create
 ./droplet-manager.sh create --size s-2vcpu-2gb
+./droplet-manager.sh create --region sfo3
+./droplet-manager.sh create --size s-2vcpu-2gb --region sfo3
 ./droplet-manager.sh list
 ./droplet-manager.sh ssh <name>
 ./droplet-manager.sh destroy <name>
@@ -41,4 +43,18 @@ export SSH_KEY_ID="<your-ssh-key-id>"
 git config --global user.name "Your Name"
 git config --global user.email "you@example.com"
 gh auth login
+```
+
+## Optional: Configure Docker registry credentials
+
+If you need private pulls from DigitalOcean Container Registry, pass env vars before bootstrap:
+
+```bash
+DOCR_REGISTRY_USER="<email>" DOCR_REGISTRY_TOKEN="<dop-token>" bash bootstrap.sh
+```
+
+Then test a pull:
+
+```bash
+docker pull --platform linux/amd64 registry.digitalocean.com/narmada-dev-images/local-mssql:latest
 ```
