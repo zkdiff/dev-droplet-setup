@@ -115,6 +115,7 @@ export NVM_DIR="$HOME/.nvm"
 To minimize costs:
 
 1. **Use smaller droplets** for light development
+   - `./droplet-manager.sh create --size s-2vcpu-2gb`
    - `s-1vcpu-1gb` for basic work
    - `s-2vcpu-2gb` for most development
    - Scale up only when needed

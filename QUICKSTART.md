@@ -29,6 +29,7 @@ export SSH_KEY_ID="<your-ssh-key-id>"
 
 # Common commands
 ./droplet-manager.sh create
+./droplet-manager.sh create --size s-2vcpu-2gb
 ./droplet-manager.sh list
 ./droplet-manager.sh ssh <name>
 ./droplet-manager.sh destroy <name>

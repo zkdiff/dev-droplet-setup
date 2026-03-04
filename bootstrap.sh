@@ -214,11 +214,16 @@ vim.cmd([[
 EOF
 
 
-# Configure sshd to accept GITHUB_TOKEN from client
-log "Configuring sshd to accept GITHUB_TOKEN..."
-if ! grep -q 'AcceptEnv GITHUB_TOKEN' /etc/ssh/sshd_config; then
-    echo 'AcceptEnv GITHUB_TOKEN' >> /etc/ssh/sshd_config
-    systemctl restart sshd
+# Configure sshd to accept GitHub token variables from client
+log "Configuring sshd to accept GH_TOKEN and GITHUB_TOKEN..."
+cat > /etc/ssh/sshd_config.d/99-github-token.conf << 'EOF'
+AcceptEnv GITHUB_TOKEN GH_TOKEN
+EOF
+
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl restart ssh || systemctl restart sshd
+else
+    service ssh restart || service sshd restart
 fi
 
 # Set timezone (optional - adjust as needed)

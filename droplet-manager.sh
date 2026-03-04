@@ -12,6 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Configuration - edit defaults or override with environment variables
 DROPLET_NAME="dam-dev"
+DROPLET_SIZE="${DROPLET_SIZE:-c2-8vcpu-16gb-intel}"
 CLOUD_INIT_FILE="${CLOUD_INIT_FILE:-$SCRIPT_DIR/cloud-init.yaml}"
 
 # Dynamically fetch all SSH Key IDs to ensure access
@@ -42,12 +43,14 @@ check_doctl() {
 
 # Create a new droplet
 create_droplet() {
-    echo -e "${BLUE}Creating new droplet: ${DROPLET_NAME}${NC}"
+    local droplet_size="${1:-$DROPLET_SIZE}"
+
+    echo -e "${BLUE}Creating new droplet: ${DROPLET_NAME} (${droplet_size})${NC}"
 
     local doctl_args=(
         compute droplet create "$DROPLET_NAME"
         --image ubuntu-24-04-x64
-        --size c2-8vcpu-16gb-intel
+        --size "$droplet_size"
         --enable-monitoring
         --wait
         --format ID,Name,PublicIPv4,Status
@@ -111,7 +114,7 @@ create_droplet() {
 # List all droplets
 list_droplets() {
     echo -e "${BLUE}Your droplets:${NC}"
-    doctl compute droplet list --format ID,Name,PublicIPv4,Status,Region,Size,Created
+    doctl compute droplet list --format ID,Name,PublicIPv4,Status,Region,Memory,VCPUs,Disk
 }
 
 # Destroy a droplet
@@ -139,27 +142,28 @@ get_ip() {
 ssh_droplet() {
     local target="${1:-$DROPLET_NAME}"
     local ip
+    local forwarded_token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
     ip="$(get_ip "$target")" || return 1
 
     [[ -z "$ip" ]] && { echo -e "${RED}Error: Could not find IP for droplet: $target${NC}"; return 1; }
 
-    # Forward GITHUB_TOKEN to the droplet via SendEnv
-    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+    # Forward GitHub token to the droplet via SendEnv
+    if [[ -z "$forwarded_token" ]]; then
         if command -v gh &>/dev/null; then
-            GITHUB_TOKEN="$(gh auth token 2>/dev/null)" || true
+            forwarded_token="$(gh auth token 2>/dev/null)" || true
         fi
     fi
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        echo -e "${GREEN}Forwarding GITHUB_TOKEN to droplet${NC}"
+    if [[ -n "$forwarded_token" ]]; then
+        echo -e "${GREEN}Forwarding GH_TOKEN/GITHUB_TOKEN to droplet${NC}"
     else
-        echo -e "${YELLOW}Warning: GITHUB_TOKEN not available (install gh CLI or export it)${NC}"
+        echo -e "${YELLOW}Warning: GitHub token not available (install gh CLI or export GH_TOKEN/GITHUB_TOKEN)${NC}"
     fi
 
     echo -e "${BLUE}Connecting to $target ($ip) via ssh config...${NC}"
     if declare -p ssh_args &>/dev/null && [[ ${#ssh_args[@]} -gt 0 ]]; then
-        env TERM=xterm-256color GITHUB_TOKEN="${GITHUB_TOKEN:-}" ssh -o SendEnv=GITHUB_TOKEN -o HostName="$ip" "$target" "${ssh_args[@]}"
+        env TERM=xterm-256color GITHUB_TOKEN="$forwarded_token" GH_TOKEN="$forwarded_token" ssh -o SendEnv=GITHUB_TOKEN,GH_TOKEN -o HostName="$ip" "$target" "${ssh_args[@]}"
     else
-        env TERM=xterm-256color GITHUB_TOKEN="${GITHUB_TOKEN:-}" ssh -o SendEnv=GITHUB_TOKEN -o HostName="$ip" "$target"
+        env TERM=xterm-256color GITHUB_TOKEN="$forwarded_token" GH_TOKEN="$forwarded_token" ssh -o SendEnv=GITHUB_TOKEN,GH_TOKEN -o HostName="$ip" "$target"
     fi
 }
 
@@ -170,7 +174,7 @@ usage() {
 Usage: $0 <command> [options]
 
 Commands:
-  create              Create a new droplet with optional cloud-init
+  create [--size <slug>] Create a new droplet with optional cloud-init
   list                List all your droplets
   destroy <id>        Destroy a droplet by ID or name
   ip <name>           Get IP address of a droplet
@@ -179,10 +183,12 @@ Commands:
 
 Configuration (edit script or override with env vars):
   DROPLET_NAME:    $DROPLET_NAME
+  DROPLET_SIZE:    $DROPLET_SIZE
   CLOUD_INIT_FILE: $CLOUD_INIT_FILE
 
 Examples:
   $0 create
+  $0 create --size s-2vcpu-2gb
   $0 list
   $0 ssh dev-20260121-143022
   $0 destroy dev-20260121-143022
@@ -200,7 +206,36 @@ main() {
     case "${1:-help}" in
         create)
             check_doctl
-            create_droplet
+            shift
+
+            local create_size=""
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --size|-s)
+                        if [[ $# -lt 2 || "$2" == -* ]]; then
+                            echo -e "${RED}Error: --size requires a machine size slug${NC}"
+                            exit 1
+                        fi
+                        create_size="$2"
+                        shift 2
+                        ;;
+                    --size=*)
+                        create_size="${1#*=}"
+                        if [[ -z "$create_size" ]]; then
+                            echo -e "${RED}Error: --size requires a machine size slug${NC}"
+                            exit 1
+                        fi
+                        shift
+                        ;;
+                    *)
+                        echo -e "${RED}Unknown option for create: $1${NC}"
+                        echo "Use: $0 create --size <slug>"
+                        exit 1
+                        ;;
+                esac
+            done
+
+            create_droplet "$create_size"
             ;;
         list)
             check_doctl
