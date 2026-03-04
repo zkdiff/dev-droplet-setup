@@ -211,10 +211,10 @@ set -g history-limit 10000
 set -g base-index 1
 setw -g pane-base-index 1
 
-# Easier prefix
-set -g prefix C-a
+# Prefix key
 unbind C-b
-bind C-a send-prefix
+set -g prefix Escape
+bind Escape send-prefix
 
 # Easy config reload
 bind r source-file ~/.tmux.conf \; display "Config reloaded"
@@ -224,10 +224,7 @@ bind \\ split-window -h
 bind - split-window -v
 
 # Status bar
-set -g status-bg colour235
-set -g status-fg colour136
-set -g status-left-length 20
-set -g status-right "%H:%M %d-%b-%y"
+set -g status off
 EOF
 
 # Create a useful Neovim configuration
