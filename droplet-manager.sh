@@ -166,6 +166,11 @@ ssh_droplet() {
 
     if [[ -n "$forwarded_docr_token" ]]; then
         echo -e "${GREEN}Forwarding DOCR_REGISTRY_TOKEN to droplet${NC}"
+    elif command -v doctl &>/dev/null; then
+        forwarded_docr_token="$(doctl auth token 2>/dev/null)" || true
+        if [[ -n "$forwarded_docr_token" ]]; then
+            echo -e "${GREEN}Defaulting DOCR_REGISTRY_TOKEN from doctl auth token${NC}"
+        fi
     fi
 
     echo -e "${BLUE}Connecting to $target ($ip) via ssh config...${NC}"

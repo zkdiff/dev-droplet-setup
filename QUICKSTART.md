@@ -47,7 +47,7 @@ gh auth login
 
 ## Optional: Configure Docker registry credentials
 
-If you need private pulls from DigitalOcean Container Registry, pass env vars before bootstrap:
+If you need private pulls from DigitalOcean Container Registry, `DOCR_REGISTRY_TOKEN` defaults to `doctl auth token` when `doctl` is available. You can still override it explicitly:
 
 ```bash
 DOCR_REGISTRY_USER="<email>" DOCR_REGISTRY_TOKEN="<dop-token>" bash bootstrap.sh

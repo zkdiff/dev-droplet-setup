@@ -34,7 +34,7 @@ This document covers tooling, configuration, customization, and troubleshooting.
 - Pre-configured `.vimrc` for basic editing
 - Git defaults (main branch, vim editor)
 - Automatic security updates enabled
-- Optional Docker auth for `registry.digitalocean.com` via `DOCR_REGISTRY_USER` and `DOCR_REGISTRY_TOKEN`
+- Optional Docker auth for `registry.digitalocean.com` via `DOCR_REGISTRY_USER` and `DOCR_REGISTRY_TOKEN` (defaults from `doctl auth token` when available)
 
 ## Useful Aliases
 

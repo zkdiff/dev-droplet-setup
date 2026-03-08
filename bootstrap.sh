@@ -13,7 +13,7 @@ LOG_FILE="/var/log/droplet-bootstrap.log"
 
 DOCR_REGISTRY_HOST="registry.digitalocean.com"
 DOCR_REGISTRY_USER="${DOCR_REGISTRY_USER:-zkdiff@gmail.com}"
-DOCR_REGISTRY_TOKEN="${DOCR_REGISTRY_TOKEN:-}"
+DOCR_REGISTRY_TOKEN="${DOCR_REGISTRY_TOKEN:-$(doctl auth token 2>/dev/null || true)}"
 
 # Provide a reliable default for HOME so tools like git (via cloud-init) don't fail
 export HOME=/root
