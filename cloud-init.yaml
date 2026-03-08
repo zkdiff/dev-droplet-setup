@@ -1,24 +1,108 @@
 #cloud-config
-# ============================================
-# DigitalOcean Droplet Cloud-Init Configuration
-# ============================================
-# Use this as "User Data" when creating a new droplet.
-# Cloud-init delegates provisioning to bootstrap.sh so there is one source of truth.
+
+timezone: America/Los_Angeles
+
+packages:
+  - git
+  - neovim
+  - tmux
+  - curl
+  - jq
+  - ripgrep
+  - fd-find
+  - zsh
+  - docker.io
+  - gh
+
+groups:
+  - docker
+
+users:
+  - name: zkdiff
+    shell: /usr/bin/zsh
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBCE0lyqRegMfW5Dd0VPpTsdXQwD01Le1gR9CXbiaRVe zkdiff@dam-15
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFYjsjrsGqSlbIBJxY5EUWsjHqYS7JK3hW1546xua9Qm zkdiff@dam-ipad
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJ7HR+P0C68km21a/3skbzz1SKw7FbVE/CSuAH8iVV5A zkdiff@dam-phone
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    groups: sudo, docker
+
+write_files:
+  - path: /etc/ssh/sshd_config.d/99-github-token.conf
+    content: |
+      AcceptEnv GITHUB_TOKEN GH_TOKEN DO_TOKEN
+  - path: /home/zkdiff/.zshrc
+    content: |
+      alias ll='ls -alF'
+      alias la='ls -A'
+      alias l='ls -CF'
+      alias gs='git status'
+      alias ga='git add'
+      alias gc='git commit'
+      alias gp='git push'
+      alias gl='git log --oneline --graph --decorate'
+      command -v fdfind >/dev/null 2>&1 && alias fd='fdfind'
+
+      export EDITOR=nvim
+      export VISUAL=nvim
+      export HISTSIZE=10000
+      export SAVEHIST=10000
+      setopt SHARE_HISTORY
+      setopt HIST_IGNORE_DUPS
+      setopt HIST_IGNORE_SPACE
+
+      autoload -Uz compinit && compinit
+
+      echo "Welcome to your development droplet!"
+      echo "Installed: Git, zsh, tmux, nvim"
+
+      if [[ -n "$DO_TOKEN" ]]; then
+          echo "$DO_TOKEN" | docker login registry.digitalocean.com -u "\$DO_TOKEN" --password-stdin >/dev/null 2>&1
+      fi
+  - path: /home/zkdiff/.tmux.conf
+    content: |
+      set -g mouse on
+      set -g default-terminal "screen-256color"
+      set -g history-limit 10000
+      set -g base-index 1
+      setw -g pane-base-index 1
+      unbind C-b
+      set -g prefix Escape
+      bind Escape send-prefix
+      bind r source-file ~/.tmux.conf \; display "Config reloaded"
+      bind \ split-window -h
+      bind - split-window -v
+      set -g status off
+  - path: /home/zkdiff/.config/nvim/init.lua
+    content: |
+      vim.opt.number = true
+      vim.opt.relativenumber = true
+      vim.opt.tabstop = 4
+      vim.opt.shiftwidth = 4
+      vim.opt.expandtab = true
+      vim.opt.smartindent = true
+      vim.opt.autoindent = true
+      vim.opt.ignorecase = true
+      vim.opt.smartcase = true
+      vim.opt.incsearch = true
+      vim.opt.hlsearch = true
+      vim.opt.termguicolors = true
+      vim.g.mapleader = " "
+      vim.cmd("colorscheme desert")
+      vim.cmd([[
+        highlight ExtraWhitespace ctermbg=red guibg=red
+        match ExtraWhitespace /\s\+$/
+      ]])
+  - path: /var/lib/cloud/scripts/per-instance/99-fixups.sh
+    permissions: "0755"
+    content: |
+      #!/bin/bash
+      git config --system init.defaultBranch main
+      git config --system pull.rebase false
+      git config --system core.editor nvim
 
 runcmd:
-  - [ bash, -lc, 'set -euo pipefail; BOOTSTRAP_URL="__BOOTSTRAP_URL__"; export DOCR_REGISTRY_USER="$(printf %s __DOCR_REGISTRY_USER_B64__ | base64 -d)"; export DOCR_REGISTRY_TOKEN="$(printf %s __DOCR_REGISTRY_TOKEN_B64__ | base64 -d)"; curl -fsSL "$BOOTSTRAP_URL" -o /root/bootstrap.sh; chmod +x /root/bootstrap.sh; /root/bootstrap.sh && echo "Cloud-init completed at $(date)" > /root/.cloud-init-complete' ]
-
-final_message: |
-  ============================================
-  Droplet provisioning complete!
-  ============================================
-
-  cloud-init executed /root/bootstrap.sh.
-  Default bootstrap URL:
-  https://raw.githubusercontent.com/zkdiff/dev-droplet-setup/main/bootstrap.sh
-
-  Edit BOOTSTRAP_URL in cloud-init.yaml to use a fork or pinned commit.
-
-  Check logs:
-  - /var/log/cloud-init-output.log
-  - /var/log/droplet-bootstrap.log
+  - systemctl restart ssh || systemctl restart sshd
+  - systemctl enable --now docker
+  - /var/lib/cloud/scripts/per-instance/99-fixups.sh
+  - echo "Bootstrap completed at $(date)" > /root/.bootstrap-complete

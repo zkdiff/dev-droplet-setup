@@ -1,158 +1,19 @@
-# DigitalOcean Droplet Provisioning System
-
-Quickly create, configure, and destroy DigitalOcean droplets for development work.
-
-## Quick Start
-
-For setup instructions, use `QUICKSTART.md`.
-This document covers tooling, configuration, customization, and troubleshooting.
-
-## What Gets Installed
-
-### Development Tools
-- **Docker** + Docker Compose - Container runtime
-- **Node.js** (via nvm) - Latest LTS version
-- **.NET SDK 8.0** - .NET development
-- **Git** + GitHub CLI - Version control
-- **Build tools** - gcc, g++, make
-
-### Terminal Tools
-- **zsh** with oh-my-zsh - Enhanced shell
-- **tmux** - Terminal multiplexer
-- **vim** + neovim - Text editors
-- **htop** - Process monitor
-- **ripgrep** - Fast search
-- **fd** - Fast find alternative
-- **bat** - Better cat
-- **jq** - JSON processor
-- **tree** - Directory visualization
-- **ncdu** - Disk usage analyzer
-
-### Configuration
-- Pre-configured `.zshrc` with useful aliases
-- Pre-configured `.tmux.conf` with sensible defaults
-- Pre-configured `.vimrc` for basic editing
-- Git defaults (main branch, vim editor)
-- Automatic security updates enabled
-- Optional Docker auth for `registry.digitalocean.com` via `DOCR_REGISTRY_USER` and `DOCR_REGISTRY_TOKEN` (defaults from `doctl auth token` when available)
-
-## Useful Aliases
-
-The following aliases are pre-configured in `.zshrc`:
-
-```bash
-ll         # ls -alF
-dc         # docker compose
-dps        # docker ps
-dcu        # docker compose up -d
-dcd        # docker compose down
-gs         # git status
-ga         # git add
-gc         # git commit
-gp         # git push
-gl         # git log --oneline --graph
-```
-
-## Repository Structure
-
-```text
-.
-├── bootstrap.sh
-├── cloud-init.yaml
-├── droplet-manager.sh
-├── QUICKSTART.md
-└── README.md
-```
-
-On provisioned droplets, `bootstrap.sh` creates `/root/projects` and `/root/scripts`.
-
-## Troubleshooting
-
-### Cloud-init Not Running
-
-Check cloud-init status:
-```bash
-ssh root@<ip> 'cloud-init status'
-```
-
-View cloud-init logs:
-```bash
-ssh root@<ip> 'tail -f /var/log/cloud-init-output.log'
-```
-
-### Bootstrap Script Fails
-
-Check the log file:
-```bash
-cat /var/log/droplet-bootstrap.log
-```
-
-`bootstrap.sh` is linear; re-run the full script instead of sourcing sections:
-```bash
-# If cloud-init already downloaded it:
-bash /root/bootstrap.sh
-
-# Or fetch and run the latest copy:
-curl -fsSL https://raw.githubusercontent.com/zkdiff/dev-droplet-setup/main/bootstrap.sh -o /root/bootstrap.sh && bash /root/bootstrap.sh
-```
-
-### Docker Not Starting
-
-```bash
-systemctl status docker
-systemctl restart docker
-```
-
-### NVM Not Found
-
-Restart your shell or source nvm:
-```bash
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-```
-
-## Cost Optimization
-
-To minimize costs:
-
-1. **Use smaller droplets** for light development
-   - `./droplet-manager.sh create --size s-2vcpu-2gb`
-   - `s-1vcpu-1gb` for basic work
-   - `s-2vcpu-2gb` for most development
-   - Scale up only when needed
-
-2. **Use the closest region for lower latency**
-   - Portland users: `sfo3` is usually the best choice
-   - `./droplet-manager.sh create --region sfo3`
-   - `export DROPLET_REGION=sfo3` to make it the default
-
-3. **Destroy droplets when not in use**
-   ```bash
-   ./droplet-manager.sh destroy <name>
-   ```
-
-4. **Use snapshots** for long-term storage
-   ```bash
-   doctl compute droplet-action snapshot <droplet-id> --snapshot-name my-dev-env
-   ```
-
-5. **Track your usage**
-   ```bash
-   doctl compute droplet list
-   ```
-
-## Security Recommendations
-
-1. **Configure firewall** via DigitalOcean or ufw
-   ```bash
-   ufw allow 22/tcp
-   ufw allow 80/tcp
-   ufw allow 443/tcp
-   ufw enable
-   ```
-
-2. **Use non-root user** for production workloads
-   ```bash
-   adduser developer
-   usermod -aG sudo,docker developer
-   ```
+- apt-get update -qq
+- apt-get install -y -qq git neovim tmux curl wget htop net-tools build-essential software-properties-common apt-transport-https ca-certificates gnupg lsb-release unzip zip jq tree ncdu ripgrep fd-find bat zsh docker.io gh unattended-upgrades
+- systemctl enable --now docker
+- chsh -s "$(which zsh)" root
+- git config --global init.defaultBranch main
+- git config --global pull.rebase false
+- git config --global core.editor nvim
+- /root/.zshrc
+- /root/.tmux.conf
+- /root/.config/nvim/init.lua
+- /etc/ssh/sshd_config.d/99-github-token.conf
+- systemctl restart ssh || systemctl restart sshd
+- timedatectl set-timezone "$BOOTSTRAP_TIMEZONE"
+- /root/.docker/config.json
+- apt-get autoremove -y -qq
+- apt-get clean
+- /root/.bootstrap-complete
+- /root/.cloud-init-complete
+- /var/log/droplet-bootstrap.log

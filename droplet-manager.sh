@@ -15,7 +15,6 @@ DROPLET_NAME="dam-dev"
 DROPLET_SIZE="${DROPLET_SIZE:-c2-8vcpu-16gb-intel}"
 DROPLET_REGION="${DROPLET_REGION:-sfo3}"
 CLOUD_INIT_FILE="${CLOUD_INIT_FILE:-$SCRIPT_DIR/cloud-init.yaml}"
-BOOTSTRAP_URL="${BOOTSTRAP_URL:-https://raw.githubusercontent.com/zkdiff/dev-droplet-setup/main/bootstrap.sh}"
 
 # Dynamically fetch all SSH Key IDs to ensure access
 SSH_KEY_IDS=$(doctl compute ssh-key list --format ID --no-header | paste -sd "," -)
@@ -43,45 +42,6 @@ check_doctl() {
     fi
 }
 
-resolve_docr_registry_user() {
-    printf '%s' "${DOCR_REGISTRY_USER:-zkdiff@gmail.com}"
-}
-
-resolve_docr_registry_token() {
-    if [[ -n "${DOCR_REGISTRY_TOKEN:-}" ]]; then
-        printf '%s' "$DOCR_REGISTRY_TOKEN"
-        return
-    fi
-
-    if command -v doctl &>/dev/null; then
-        doctl auth token 2>/dev/null || true
-    fi
-}
-
-render_cloud_init() {
-    local template_file="$1"
-    local output_file="$2"
-    local docr_user="$3"
-    local docr_token="$4"
-    local bootstrap_url="$5"
-    local docr_user_b64
-    local docr_token_b64
-
-    docr_user_b64="$(printf '%s' "$docr_user" | base64 | tr -d '\n')"
-    docr_token_b64="$(printf '%s' "$docr_token" | base64 | tr -d '\n')"
-
-    python3 - "$template_file" "$output_file" "$bootstrap_url" "$docr_user_b64" "$docr_token_b64" <<'PY'
-import pathlib
-import sys
-
-template_path, output_path, bootstrap_url, docr_user_b64, docr_token_b64 = sys.argv[1:6]
-content = pathlib.Path(template_path).read_text()
-content = content.replace("__BOOTSTRAP_URL__", bootstrap_url)
-content = content.replace("__DOCR_REGISTRY_USER_B64__", docr_user_b64)
-content = content.replace("__DOCR_REGISTRY_TOKEN_B64__", docr_token_b64)
-pathlib.Path(output_path).write_text(content)
-PY
-}
 
 # Create a new droplet
 create_droplet() {
@@ -104,19 +64,8 @@ create_droplet() {
     )
 
     if [ -f "$CLOUD_INIT_FILE" ]; then
-        docr_user="$(resolve_docr_registry_user)"
-        docr_token="$(resolve_docr_registry_token)"
-        rendered_cloud_init="$(mktemp)"
-        render_cloud_init "$CLOUD_INIT_FILE" "$rendered_cloud_init" "$docr_user" "$docr_token" "$BOOTSTRAP_URL"
-        doctl_args+=(--user-data-file "$rendered_cloud_init")
-        trap '[[ -n "$rendered_cloud_init" ]] && rm -f "$rendered_cloud_init"' RETURN
-        echo -e "${GREEN}Using rendered cloud-init from: $CLOUD_INIT_FILE${NC}"
-
-        if [[ -n "$docr_token" ]]; then
-            echo -e "${GREEN}Injected DOCR credentials into cloud-init bootstrap${NC}"
-        else
-            echo -e "${YELLOW}Warning: DOCR token not found; bootstrap will skip DOCR auth setup${NC}"
-        fi
+        doctl_args+=(--user-data-file "$CLOUD_INIT_FILE")
+        echo -e "${GREEN}Using cloud-init from: $CLOUD_INIT_FILE${NC}"
     fi
 
     if [ -n "$SSH_KEY_IDS" ]; then
@@ -124,11 +73,6 @@ create_droplet() {
     fi
 
     doctl "${doctl_args[@]}"
-
-    if [[ -n "$rendered_cloud_init" ]]; then
-        rm -f "$rendered_cloud_init"
-        trap - RETURN
-    fi
 
     echo ""
     echo -e "${GREEN}Droplet created successfully!${NC}"
@@ -168,8 +112,7 @@ create_droplet() {
 
             echo -e "${GREEN}Provisioning complete! You can now SSH into the droplet.${NC}"
         else
-            echo -e "${YELLOW}If not using cloud-init, bootstrap manually:${NC}"
-            echo "  ssh root@$ip 'bash -s' < bootstrap.sh"
+            echo -e "${YELLOW}If not using cloud-init, perform setup manually.${NC}"
         fi
     fi
 }
@@ -206,8 +149,6 @@ ssh_droplet() {
     local target="${1:-$DROPLET_NAME}"
     local ip
     local forwarded_token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-    local forwarded_docr_user="${DOCR_REGISTRY_USER:-zkdiff@gmail.com}"
-    local forwarded_docr_token="${DOCR_REGISTRY_TOKEN:-}"
     ip="$(get_ip "$target")" || return 1
 
     [[ -z "$ip" ]] && { echo -e "${RED}Error: Could not find IP for droplet: $target${NC}"; return 1; }
@@ -224,20 +165,21 @@ ssh_droplet() {
         echo -e "${YELLOW}Warning: GitHub token not available (install gh CLI or export GH_TOKEN/GITHUB_TOKEN)${NC}"
     fi
 
-    if [[ -n "$forwarded_docr_token" ]]; then
-        echo -e "${GREEN}Forwarding DOCR_REGISTRY_TOKEN to droplet${NC}"
-    elif command -v doctl &>/dev/null; then
-        forwarded_docr_token="$(doctl auth token 2>/dev/null)" || true
-        if [[ -n "$forwarded_docr_token" ]]; then
-            echo -e "${GREEN}Defaulting DOCR_REGISTRY_TOKEN from doctl auth token${NC}"
-        fi
+
+
+    local forwarded_do_token=""
+    if command -v doctl &>/dev/null; then
+        forwarded_do_token="$(doctl auth list --format Token --no-header 2>/dev/null | head -n 1)" || true
+    fi
+    if [[ -n "$forwarded_do_token" ]]; then
+        echo -e "${GREEN}Forwarding DO_TOKEN (DigitalOcean Auth) to droplet${NC}"
     fi
 
     echo -e "${BLUE}Connecting to $target ($ip) via ssh config...${NC}"
     if declare -p ssh_args &>/dev/null && [[ ${#ssh_args[@]} -gt 0 ]]; then
-        env TERM=xterm-256color GITHUB_TOKEN="$forwarded_token" GH_TOKEN="$forwarded_token" DOCR_REGISTRY_USER="$forwarded_docr_user" DOCR_REGISTRY_TOKEN="$forwarded_docr_token" ssh -o SendEnv=GITHUB_TOKEN,GH_TOKEN,DOCR_REGISTRY_USER,DOCR_REGISTRY_TOKEN -o HostName="$ip" "$target" "${ssh_args[@]}"
+        env TERM=xterm-256color GITHUB_TOKEN="$forwarded_token" GH_TOKEN="$forwarded_token" DO_TOKEN="$forwarded_do_token" ssh -o SendEnv=GITHUB_TOKEN,GH_TOKEN,DO_TOKEN -o HostName="$ip" "$target" "${ssh_args[@]}"
     else
-        env TERM=xterm-256color GITHUB_TOKEN="$forwarded_token" GH_TOKEN="$forwarded_token" DOCR_REGISTRY_USER="$forwarded_docr_user" DOCR_REGISTRY_TOKEN="$forwarded_docr_token" ssh -o SendEnv=GITHUB_TOKEN,GH_TOKEN,DOCR_REGISTRY_USER,DOCR_REGISTRY_TOKEN -o HostName="$ip" "$target"
+        env TERM=xterm-256color GITHUB_TOKEN="$forwarded_token" GH_TOKEN="$forwarded_token" DO_TOKEN="$forwarded_do_token" ssh -o SendEnv=GITHUB_TOKEN,GH_TOKEN,DO_TOKEN -o HostName="$ip" "$target"
     fi
 }
 
@@ -260,7 +202,6 @@ Configuration (edit script or override with env vars):
   DROPLET_SIZE:    $DROPLET_SIZE
   DROPLET_REGION:  $DROPLET_REGION
   CLOUD_INIT_FILE: $CLOUD_INIT_FILE
-  BOOTSTRAP_URL:   $BOOTSTRAP_URL
 
 Examples:
   $0 create
