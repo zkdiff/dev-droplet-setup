@@ -6,7 +6,7 @@
 # Cloud-init delegates provisioning to bootstrap.sh so there is one source of truth.
 
 runcmd:
-  - [ bash, -lc, 'set -euo pipefail; BOOTSTRAP_URL="${BOOTSTRAP_URL:-https://raw.githubusercontent.com/zkdiff/dev-droplet-setup/main/bootstrap.sh}"; curl -fsSL "$BOOTSTRAP_URL" -o /root/bootstrap.sh; chmod +x /root/bootstrap.sh; /root/bootstrap.sh && echo "Cloud-init completed at $(date)" > /root/.cloud-init-complete' ]
+  - [ bash, -lc, 'set -euo pipefail; BOOTSTRAP_URL="__BOOTSTRAP_URL__"; export DOCR_REGISTRY_USER="$(printf %s __DOCR_REGISTRY_USER_B64__ | base64 -d)"; export DOCR_REGISTRY_TOKEN="$(printf %s __DOCR_REGISTRY_TOKEN_B64__ | base64 -d)"; curl -fsSL "$BOOTSTRAP_URL" -o /root/bootstrap.sh; chmod +x /root/bootstrap.sh; /root/bootstrap.sh && echo "Cloud-init completed at $(date)" > /root/.cloud-init-complete' ]
 
 final_message: |
   ============================================

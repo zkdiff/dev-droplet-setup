@@ -8,12 +8,18 @@ set -euo pipefail
 # Usage: curl -fsSL <url-to-this-script> | bash
 # Or: bash bootstrap.sh
 
-SCRIPT_VERSION="1.0.2"
+SCRIPT_VERSION="1.1.0"
 LOG_FILE="/var/log/droplet-bootstrap.log"
 
 DOCR_REGISTRY_HOST="registry.digitalocean.com"
 DOCR_REGISTRY_USER="${DOCR_REGISTRY_USER:-zkdiff@gmail.com}"
-DOCR_REGISTRY_TOKEN="${DOCR_REGISTRY_TOKEN:-$(doctl auth token 2>/dev/null || true)}"
+DOCR_REGISTRY_TOKEN="${DOCR_REGISTRY_TOKEN:-}"
+
+BOOTSTRAP_UPGRADE_SYSTEM="${BOOTSTRAP_UPGRADE_SYSTEM:-0}"
+INSTALL_DOCKER="${INSTALL_DOCKER:-1}"
+INSTALL_GITHUB_CLI="${INSTALL_GITHUB_CLI:-1}"
+INSTALL_UNATTENDED_UPGRADES="${INSTALL_UNATTENDED_UPGRADES:-1}"
+BOOTSTRAP_TIMEZONE="${BOOTSTRAP_TIMEZONE:-America/Los_Angeles}"
 
 # Provide a reliable default for HOME so tools like git (via cloud-init) don't fail
 export HOME=/root
@@ -55,45 +61,76 @@ wait_for_apt() {
     done
 }
 
-# Update system
-log "Updating system packages..."
+install_packages() {
+    if [[ $# -eq 0 ]]; then
+        return
+    fi
+
+    wait_for_apt
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "$@"
+}
+
+# Update package metadata once
+log "Updating package metadata..."
 wait_for_apt
 apt-get update -qq
-wait_for_apt
-DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
 
-# Install essential packages
-log "Installing essential packages..."
-wait_for_apt
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-    git \
-    vim \
-    neovim \
-    tmux \
-    curl \
-    wget \
-    htop \
-    net-tools \
-    build-essential \
-    software-properties-common \
-    apt-transport-https \
-    ca-certificates \
-    gnupg \
-    lsb-release \
-    unzip \
-    zip \
-    jq \
-    tree \
-    ncdu \
-    ripgrep \
-    fd-find \
+if [[ "$BOOTSTRAP_UPGRADE_SYSTEM" == "1" ]]; then
+    log "Upgrading installed packages..."
+    wait_for_apt
+    DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -qq
+else
+    log "Skipping full system upgrade (set BOOTSTRAP_UPGRADE_SYSTEM=1 to enable)"
+fi
+
+# Install packages in a single apt transaction
+log "Installing bootstrap packages..."
+packages=(
+    git
+    vim
+    neovim
+    tmux
+    curl
+    wget
+    htop
+    net-tools
+    build-essential
+    software-properties-common
+    apt-transport-https
+    ca-certificates
+    gnupg
+    lsb-release
+    unzip
+    zip
+    jq
+    tree
+    ncdu
+    ripgrep
+    fd-find
     bat
+    zsh
+)
 
-# Install Docker engine
-log "Installing Docker engine..."
-wait_for_apt
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io
-systemctl enable --now docker
+if [[ "$INSTALL_DOCKER" == "1" ]]; then
+    packages+=(docker.io)
+fi
+
+if [[ "$INSTALL_GITHUB_CLI" == "1" ]]; then
+    packages+=(gh)
+fi
+
+if [[ "$INSTALL_UNATTENDED_UPGRADES" == "1" ]]; then
+    packages+=(unattended-upgrades)
+fi
+
+install_packages "${packages[@]}"
+
+if [[ "$INSTALL_DOCKER" == "1" ]]; then
+    log "Enabling Docker service..."
+    systemctl enable --now docker
+else
+    log "Skipping Docker install (set INSTALL_DOCKER=1 to enable)"
+fi
 
 # Configure Docker auth for DigitalOcean registry pulls
 configure_docr_registry_auth() {
@@ -132,21 +169,6 @@ EOF
 }
 
 configure_docr_registry_auth
-
-# Install zsh
-log "Installing zsh..."
-wait_for_apt
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq zsh
-
-(type -p wget >/dev/null || (sudo apt update && sudo apt install wget -y)) \
-	&& sudo mkdir -p -m 755 /etc/apt/keyrings \
-	&& out=$(mktemp) && wget -nv -O$out https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-	&& cat $out | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
-	&& sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
-	&& sudo mkdir -p -m 755 /etc/apt/sources.list.d \
-	&& echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
-	&& sudo apt update \
-	&& sudo apt install gh -y
 
 # Change default shell to zsh
 chsh -s "$(which zsh)" root
@@ -272,14 +294,16 @@ else
 fi
 
 # Set timezone (optional - adjust as needed)
-log "Setting timezone to PST..."
-timedatectl set-timezone America/Los_Angeles
+log "Setting timezone to ${BOOTSTRAP_TIMEZONE}..."
+timedatectl set-timezone "${BOOTSTRAP_TIMEZONE}"
 
 # Enable automatic security updates
-log "Configuring automatic security updates..."
-wait_for_apt
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq unattended-upgrades
-DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive unattended-upgrades
+if [[ "$INSTALL_UNATTENDED_UPGRADES" == "1" ]]; then
+    log "Configuring automatic security updates..."
+    DEBIAN_FRONTEND=noninteractive dpkg-reconfigure -f noninteractive unattended-upgrades
+else
+    log "Skipping automatic security updates install (set INSTALL_UNATTENDED_UPGRADES=1 to enable)"
+fi
 
 # Clean up
 log "Cleaning up..."
@@ -295,11 +319,26 @@ log "========================================"
 log ""
 log "Summary of installed tools:"
 log "  - git"
-log "  - docker"
 log "  - zsh"
 log "  - tmux, vim, neovim"
 log "  - build tools + utilities"
-log "  - DOCR pull auth for ${DOCR_REGISTRY_HOST}"
+
+if [[ "$INSTALL_DOCKER" == "1" ]]; then
+    log "  - docker"
+fi
+
+if [[ "$INSTALL_GITHUB_CLI" == "1" ]]; then
+    log "  - gh"
+fi
+
+if [[ "$INSTALL_UNATTENDED_UPGRADES" == "1" ]]; then
+    log "  - automatic security updates"
+fi
+
+if [[ -n "${DOCR_REGISTRY_TOKEN}" ]]; then
+    log "  - DOCR pull auth for ${DOCR_REGISTRY_HOST}"
+fi
+
 log ""
 log "Next steps:"
 log "  1. Log out and log back in (or run: exec zsh)"

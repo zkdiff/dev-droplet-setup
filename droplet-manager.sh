@@ -15,6 +15,7 @@ DROPLET_NAME="dam-dev"
 DROPLET_SIZE="${DROPLET_SIZE:-c2-8vcpu-16gb-intel}"
 DROPLET_REGION="${DROPLET_REGION:-sfo3}"
 CLOUD_INIT_FILE="${CLOUD_INIT_FILE:-$SCRIPT_DIR/cloud-init.yaml}"
+BOOTSTRAP_URL="${BOOTSTRAP_URL:-https://raw.githubusercontent.com/zkdiff/dev-droplet-setup/main/bootstrap.sh}"
 
 # Dynamically fetch all SSH Key IDs to ensure access
 SSH_KEY_IDS=$(doctl compute ssh-key list --format ID --no-header | paste -sd "," -)
@@ -42,10 +43,53 @@ check_doctl() {
     fi
 }
 
+resolve_docr_registry_user() {
+    printf '%s' "${DOCR_REGISTRY_USER:-zkdiff@gmail.com}"
+}
+
+resolve_docr_registry_token() {
+    if [[ -n "${DOCR_REGISTRY_TOKEN:-}" ]]; then
+        printf '%s' "$DOCR_REGISTRY_TOKEN"
+        return
+    fi
+
+    if command -v doctl &>/dev/null; then
+        doctl auth token 2>/dev/null || true
+    fi
+}
+
+render_cloud_init() {
+    local template_file="$1"
+    local output_file="$2"
+    local docr_user="$3"
+    local docr_token="$4"
+    local bootstrap_url="$5"
+    local docr_user_b64
+    local docr_token_b64
+
+    docr_user_b64="$(printf '%s' "$docr_user" | base64 | tr -d '\n')"
+    docr_token_b64="$(printf '%s' "$docr_token" | base64 | tr -d '\n')"
+
+    python3 - "$template_file" "$output_file" "$bootstrap_url" "$docr_user_b64" "$docr_token_b64" <<'PY'
+import pathlib
+import sys
+
+template_path, output_path, bootstrap_url, docr_user_b64, docr_token_b64 = sys.argv[1:6]
+content = pathlib.Path(template_path).read_text()
+content = content.replace("__BOOTSTRAP_URL__", bootstrap_url)
+content = content.replace("__DOCR_REGISTRY_USER_B64__", docr_user_b64)
+content = content.replace("__DOCR_REGISTRY_TOKEN_B64__", docr_token_b64)
+pathlib.Path(output_path).write_text(content)
+PY
+}
+
 # Create a new droplet
 create_droplet() {
     local droplet_size="${1:-$DROPLET_SIZE}"
     local droplet_region="${2:-$DROPLET_REGION}"
+    local rendered_cloud_init=""
+    local docr_user=""
+    local docr_token=""
 
     echo -e "${BLUE}Creating new droplet: ${DROPLET_NAME} (${droplet_size}, ${droplet_region})${NC}"
 
@@ -60,8 +104,19 @@ create_droplet() {
     )
 
     if [ -f "$CLOUD_INIT_FILE" ]; then
-        doctl_args+=(--user-data-file "$CLOUD_INIT_FILE")
-        echo -e "${GREEN}Using cloud-init from: $CLOUD_INIT_FILE${NC}"
+        docr_user="$(resolve_docr_registry_user)"
+        docr_token="$(resolve_docr_registry_token)"
+        rendered_cloud_init="$(mktemp)"
+        render_cloud_init "$CLOUD_INIT_FILE" "$rendered_cloud_init" "$docr_user" "$docr_token" "$BOOTSTRAP_URL"
+        doctl_args+=(--user-data-file "$rendered_cloud_init")
+        trap '[[ -n "$rendered_cloud_init" ]] && rm -f "$rendered_cloud_init"' RETURN
+        echo -e "${GREEN}Using rendered cloud-init from: $CLOUD_INIT_FILE${NC}"
+
+        if [[ -n "$docr_token" ]]; then
+            echo -e "${GREEN}Injected DOCR credentials into cloud-init bootstrap${NC}"
+        else
+            echo -e "${YELLOW}Warning: DOCR token not found; bootstrap will skip DOCR auth setup${NC}"
+        fi
     fi
 
     if [ -n "$SSH_KEY_IDS" ]; then
@@ -69,6 +124,11 @@ create_droplet() {
     fi
 
     doctl "${doctl_args[@]}"
+
+    if [[ -n "$rendered_cloud_init" ]]; then
+        rm -f "$rendered_cloud_init"
+        trap - RETURN
+    fi
 
     echo ""
     echo -e "${GREEN}Droplet created successfully!${NC}"
@@ -200,6 +260,7 @@ Configuration (edit script or override with env vars):
   DROPLET_SIZE:    $DROPLET_SIZE
   DROPLET_REGION:  $DROPLET_REGION
   CLOUD_INIT_FILE: $CLOUD_INIT_FILE
+  BOOTSTRAP_URL:   $BOOTSTRAP_URL
 
 Examples:
   $0 create
