@@ -167,9 +167,13 @@ ssh_droplet() {
 
 
 
-    local forwarded_do_token=""
-    if command -v doctl &>/dev/null; then
-        forwarded_do_token="$(doctl auth list --format Token --no-header 2>/dev/null | head -n 1)" || true
+    local forwarded_do_token="${DIGITALOCEAN_ACCESS_TOKEN:-${DO_PAT:-}}"
+    if [[ -z "$forwarded_do_token" ]]; then
+        local doctl_config="${XDG_CONFIG_HOME:-$HOME/.config}/doctl/config.yaml"
+        [[ ! -f "$doctl_config" ]] && doctl_config="$HOME/Library/Application Support/doctl/config.yaml"
+        if [[ -f "$doctl_config" ]]; then
+            forwarded_do_token="$(awk '/^access-token:/{print $2}' "$doctl_config" | head -n 1)"
+        fi
     fi
     if [[ -n "$forwarded_do_token" ]]; then
         echo -e "${GREEN}Forwarding DO_TOKEN (DigitalOcean Auth) to droplet${NC}"
