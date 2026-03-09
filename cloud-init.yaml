@@ -70,7 +70,7 @@ write_files:
       set -g prefix Escape
       bind Escape send-prefix
       bind r source-file ~/.tmux.conf \; display "Config reloaded"
-      bind \\ split-window -h
+      bind \\\\ split-window -h
       bind - split-window -v
       set -g status off
   - path: /root/.config/nvim/init.lua
